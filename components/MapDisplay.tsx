@@ -47,8 +47,8 @@ export const MapDisplay: React.FC<MapDisplayProps> = ({ position, mapData }) => 
     }
 
     return (
-        <div className="relative group">
-            <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 text-mythic-gold/50 text-xs font-serif tracking-widest uppercase">
+        <div className="relative group my-8">
+            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 text-mythic-gold/50 text-xs font-serif tracking-widest uppercase">
                 North
             </div>
             
@@ -92,7 +92,7 @@ export const MapDisplay: React.FC<MapDisplayProps> = ({ position, mapData }) => 
                 })}
             </div>
             
-            <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-slate-700 text-xs font-serif tracking-widest uppercase">
+            <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 text-slate-700 text-xs font-serif tracking-widest uppercase">
                 South
             </div>
         </div>

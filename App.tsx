@@ -5,6 +5,7 @@ import { StatusCard } from './components/StatusCard';
 import { Inventory } from './components/Inventory';
 import { GameLog } from './components/GameLog';
 import { MapDisplay } from './components/MapDisplay';
+import { AmbientSound } from './components/AmbientSound';
 
 // --- INITIAL STATE ---
 const INITIAL_STATS: CharacterStats = {
@@ -305,9 +306,13 @@ export default function App() {
       <div className="scanline"></div>
       
       <header className="flex-none p-4 md:rounded-t-xl bg-mythic-900 border-b border-slate-700 flex justify-between items-center">
-        <div>
-           <h1 className="text-2xl md:text-3xl font-serif font-bold text-mythic-gold tracking-wider">AETHERIA</h1>
-           <p className="text-xs text-slate-500 hidden md:block">{state.world.locationName} — {state.world.timeOfDay}</p>
+        <div className="flex items-center gap-4">
+           <div>
+              <h1 className="text-2xl md:text-3xl font-serif font-bold text-mythic-gold tracking-wider">AETHERIA</h1>
+              <p className="text-xs text-slate-500 hidden md:block">{state.world.locationName} — {state.world.timeOfDay}</p>
+           </div>
+           {/* AUDIO TOGGLE */}
+           <AmbientSound />
         </div>
         <div className="text-right">
            <div className="text-xs text-slate-500 uppercase tracking-widest">Turn</div>
