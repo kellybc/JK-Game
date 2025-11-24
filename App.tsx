@@ -7,15 +7,12 @@ import { GameLog } from './components/GameLog';
 import { MapDisplay } from './components/MapDisplay';
 import { AmbientSound } from './components/AmbientSound';
 
-// --- INITIAL STATE ---
-const INITIAL_STATS: CharacterStats = {
-  hp: 20, maxHp: 20, xp: 0, level: 1, strength: 10, defense: 10, supplies: 5
-};
-
-const INITIAL_STATE: GameState = {
+// --- INITIAL STATE GENERATOR ---
+const createInitialState = (characterName: string): GameState => ({
+  id: Date.now().toString(),
   player: {
-    name: "Traveler",
-    stats: INITIAL_STATS,
+    name: characterName,
+    stats: { hp: 20, maxHp: 20, xp: 0, level: 1, strength: 10, defense: 10, supplies: 5 },
     inventory: [
       { id: '1', name: 'Rusted Dagger', description: 'Better than nothing.', type: ItemType.WEAPON, quantity: 1 },
       { id: '2', name: 'Dried Biscuit', description: 'Hard as a rock.', type: ItemType.CONSUMABLE, quantity: 2 }
@@ -26,7 +23,7 @@ const INITIAL_STATE: GameState = {
   },
   world: {
     locationName: "Crossroads of Echoes",
-    locationDescription: "A foggy intersection of old dirt roads.",
+    locationDescription: "A foggy intersection of old dirt roads. A signpost points North to the Whispering Woods.",
     timeOfDay: "Dusk",
     dangerLevel: 1,
     npcMemory: {},
@@ -39,15 +36,16 @@ const INITIAL_STATE: GameState = {
   gameLog: [{
     id: 'init',
     sender: 'dm',
-    content: "You stand at the Crossroads of Echoes (0,0). A cold wind bites at your skin. To the North lies the Whispering Woods. To the South, the village. What will you do?",
+    content: `Welcome, ${characterName}. You stand at the Crossroads of Echoes (0,0). The legend of the Aether Core brought you here, but only the wind greets you now. To the North lies the Whispering Woods. To the South, the Ruined Village.`,
     timestamp: Date.now()
   }],
   turnCount: 0,
   isGameOver: false
-};
+});
 
 // --- REDUCER ---
 type Action = 
+  | { type: 'LOAD_STATE'; payload: GameState }
   | { type: 'ADD_LOG'; payload: LogEntry }
   | { type: 'UPDATE_STATS'; payload: Partial<CharacterStats> }
   | { type: 'ADD_ITEM'; payload: Item }
@@ -59,18 +57,25 @@ type Action =
   | { type: 'GAME_OVER' };
 
 const gameReducer = (state: GameState, action: Action): GameState => {
+  let newState = state;
+
   switch (action.type) {
+    case 'LOAD_STATE':
+        return action.payload;
+
     case 'ADD_LOG':
-      return { ...state, gameLog: [...state.gameLog, action.payload] };
+      newState = { ...state, gameLog: [...state.gameLog, action.payload] };
+      break;
     
     case 'UPDATE_STATS':
-      return {
+      newState = {
         ...state,
         player: {
           ...state.player,
           stats: { ...state.player.stats, ...action.payload }
         }
       };
+      break;
       
     case 'ADD_ITEM': {
       const existingItemIndex = state.player.inventory.findIndex(i => i.name === action.payload.name);
@@ -80,7 +85,8 @@ const gameReducer = (state: GameState, action: Action): GameState => {
       } else {
         newInventory.push(action.payload);
       }
-      return { ...state, player: { ...state.player, inventory: newInventory } };
+      newState = { ...state, player: { ...state.player, inventory: newInventory } };
+      break;
     }
 
     case 'REMOVE_ITEM': {
@@ -93,7 +99,8 @@ const gameReducer = (state: GameState, action: Action): GameState => {
       } else {
         newInv.splice(targetIndex, 1);
       }
-      return { ...state, player: { ...state.player, inventory: newInv } };
+      newState = { ...state, player: { ...state.player, inventory: newInv } };
+      break;
     }
 
     case 'DROP_ITEM': {
@@ -102,11 +109,8 @@ const gameReducer = (state: GameState, action: Action): GameState => {
       
       let newInv = [...state.player.inventory];
       const droppedItem = newInv[targetIndex];
-      
-      // Completely remove item stack when dropped
       newInv.splice(targetIndex, 1);
 
-      // Add a log entry for the drop
       const dropLog: LogEntry = {
           id: Date.now().toString(),
           sender: 'system',
@@ -114,15 +118,16 @@ const gameReducer = (state: GameState, action: Action): GameState => {
           timestamp: Date.now()
       };
 
-      return { 
+      newState = { 
           ...state, 
           gameLog: [...state.gameLog, dropLog],
           player: { ...state.player, inventory: newInv } 
       };
+      break;
     }
 
     case 'SET_LOCATION':
-      return {
+      newState = {
         ...state,
         world: {
           ...state.world,
@@ -130,15 +135,17 @@ const gameReducer = (state: GameState, action: Action): GameState => {
           locationDescription: action.payload.desc
         }
       };
+      break;
 
     case 'UPDATE_NPC_MEMORY':
-      return {
+      newState = {
         ...state,
         world: {
           ...state.world,
           npcMemory: { ...state.world.npcMemory, ...action.payload }
         }
       };
+      break;
 
     case 'UPDATE_MAP': {
         const { direction, terrain } = action.payload;
@@ -151,11 +158,9 @@ const gameReducer = (state: GameState, action: Action): GameState => {
 
         const newKey = `${x},${y}`;
         const newTiles = { ...state.world.mapData.tiles };
-        
-        // Always update the terrain type of the location we just moved to/are at
         newTiles[newKey] = { type: terrain, visited: true };
 
-        return {
+        newState = {
             ...state,
             player: { ...state.player, position: { x, y } },
             world: {
@@ -163,22 +168,105 @@ const gameReducer = (state: GameState, action: Action): GameState => {
                 mapData: { tiles: newTiles }
             }
         };
+        break;
     }
 
     case 'GAME_OVER':
-      return { ...state, isGameOver: true };
-
-    default:
-      return state;
+      newState = { ...state, isGameOver: true };
+      break;
   }
+
+  // Auto-save on every state change.
+  // Note: LOAD_STATE returns early, so we don't need to check for it here.
+  const saves = JSON.parse(localStorage.getItem('aetheria_saves') || '{}');
+  saves[newState.id] = newState;
+  localStorage.setItem('aetheria_saves', JSON.stringify(saves));
+
+  return newState;
 };
 
-// --- MAIN COMPONENT ---
+// --- MAIN MENU COMPONENT ---
+const MainMenu = ({ onStart, onLoad }: { onStart: (name: string) => void, onLoad: (id: string) => void }) => {
+    const [name, setName] = useState('');
+    const [saves, setSaves] = useState<GameState[]>([]);
+
+    useEffect(() => {
+        const savedData = JSON.parse(localStorage.getItem('aetheria_saves') || '{}');
+        setSaves(Object.values(savedData));
+    }, []);
+
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-mythic-900 text-slate-200 p-4">
+            <h1 className="text-4xl md:text-6xl font-serif text-mythic-gold mb-8 tracking-widest text-center">
+                AETHERIA CHRONICLES
+            </h1>
+            
+            <div className="w-full max-w-md space-y-8">
+                <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-xl">
+                    <h2 className="text-xl font-bold mb-4 text-white">New Adventure</h2>
+                    <input 
+                        type="text" 
+                        placeholder="Enter Character Name" 
+                        className="w-full bg-slate-900 border border-slate-600 p-3 rounded mb-4 text-white focus:border-mythic-gold outline-none"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                    />
+                    <button 
+                        onClick={() => name && onStart(name)}
+                        disabled={!name}
+                        className="w-full bg-mythic-gold hover:bg-amber-400 text-mythic-900 font-bold py-3 rounded transition-colors disabled:opacity-50"
+                    >
+                        Begin Journey
+                    </button>
+                </div>
+
+                {saves.length > 0 && (
+                    <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-xl">
+                        <h2 className="text-xl font-bold mb-4 text-white">Load Game</h2>
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2 scrollbar-hide">
+                            {saves.map(save => (
+                                <button 
+                                    key={save.id}
+                                    onClick={() => onLoad(save.id)}
+                                    className="w-full text-left bg-slate-700 hover:bg-slate-600 p-3 rounded flex justify-between items-center group transition-colors"
+                                >
+                                    <div>
+                                        <div className="font-bold text-mythic-gold">{save.player.name}</div>
+                                        <div className="text-xs text-slate-400">Level {save.player.stats.level} • {save.world.locationName}</div>
+                                    </div>
+                                    <span className="opacity-0 group-hover:opacity-100 text-xs uppercase tracking-widest">Load</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// --- MAIN APP COMPONENT ---
 export default function App() {
-  const [state, dispatch] = useReducer(gameReducer, INITIAL_STATE);
+  const [isInMenu, setIsInMenu] = useState(true);
+  const [state, dispatch] = useReducer(gameReducer, createInitialState("Traveler"));
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>(["Look around", "Check supplies", "Walk North"]);
+  const [suggestions, setSuggestions] = useState<string[]>(["Look around", "Check supplies"]);
+
+  const startGame = (name: string) => {
+      const newState = createInitialState(name);
+      dispatch({ type: 'LOAD_STATE', payload: newState });
+      setIsInMenu(false);
+      setSuggestions(["Look around", "Walk North", "Check Inventory"]);
+  };
+
+  const loadGame = (id: string) => {
+      const saves = JSON.parse(localStorage.getItem('aetheria_saves') || '{}');
+      if (saves[id]) {
+          dispatch({ type: 'LOAD_STATE', payload: saves[id] });
+          setIsInMenu(false);
+      }
+  };
 
   const handleAction = async (actionText: string) => {
     if (!actionText.trim() || isProcessing || state.isGameOver) return;
@@ -301,17 +389,23 @@ export default function App() {
     }
   };
 
+  if (isInMenu) {
+      return <MainMenu onStart={startGame} onLoad={loadGame} />;
+  }
+
   return (
     <div className="flex flex-col h-screen w-full max-w-7xl mx-auto md:p-4">
       <div className="scanline"></div>
       
       <header className="flex-none p-4 md:rounded-t-xl bg-mythic-900 border-b border-slate-700 flex justify-between items-center">
         <div className="flex items-center gap-4">
+           <button onClick={() => setIsInMenu(true)} className="text-xs text-slate-500 hover:text-white transition-colors">
+               ← MENU
+           </button>
            <div>
-              <h1 className="text-2xl md:text-3xl font-serif font-bold text-mythic-gold tracking-wider">AETHERIA</h1>
-              <p className="text-xs text-slate-500 hidden md:block">{state.world.locationName} — {state.world.timeOfDay}</p>
+              <h1 className="text-xl md:text-2xl font-serif font-bold text-mythic-gold tracking-wider uppercase">{state.player.name}</h1>
+              <p className="text-xs text-slate-500 hidden md:block">{state.world.locationName}</p>
            </div>
-           {/* AUDIO TOGGLE */}
            <AmbientSound />
         </div>
         <div className="text-right">
@@ -323,7 +417,7 @@ export default function App() {
       <main className="flex-1 flex flex-col md:flex-row overflow-hidden md:border-x border-slate-700 bg-slate-950">
         
         <section className="flex-1 flex flex-col min-w-0 order-2 md:order-1 relative z-10 h-full">
-          {/* Main Map Display Area - Prominent and larger */}
+          {/* Main Map Display Area */}
           <div className="flex-none p-4 bg-slate-900 border-b border-slate-800 flex justify-center shadow-inner">
             <MapDisplay position={state.player.position} mapData={state.world.mapData} />
           </div>

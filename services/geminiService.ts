@@ -67,7 +67,7 @@ const aiResponseSchema: Schema = {
     movement_direction: {
       type: Type.STRING,
       enum: ['NORTH', 'SOUTH', 'EAST', 'WEST', 'NONE'],
-      description: "Direction the player moved this turn. NONE if they stayed in place."
+      description: "Direction the player moved this turn. If they just say 'follow path' or 'go to clearing', you MUST infer the cardinal direction."
     },
     current_terrain_type: {
       type: Type.STRING,
@@ -115,26 +115,29 @@ export const generateGameTurn = async (
     player: {
       stats: currentState.player.stats,
       inventory: currentState.player.inventory.map(i => `${i.name} (${i.quantity})`),
-      position: currentState.player.position, // Send coords so AI knows context
+      position: currentState.player.position, 
     },
     world: {
       location: currentState.world.locationName,
       desc: currentState.world.locationDescription,
-      time: currentState.world.timeOfDay
+      time: currentState.world.timeOfDay,
+      map_tile_type: currentState.world.mapData.tiles[`${currentState.player.position.x},${currentState.player.position.y}`]?.type
     },
     recent_history: currentState.gameLog.slice(-5).map(log => `${log.sender}: ${log.content}`).join("\n"),
   };
 
   const systemPrompt = `
-    You are the Dungeon Master for 'Aetheria'. 
+    You are the Dungeon Master for 'Aetheria Chronicles'. 
+    
+    CAMPAIGN GOAL:
+    The player is a generic adventurer who must find the "Aether Core" to stop the "Voidbound" corruption. 
+    The Core is hidden deep in a Dungeon, but they start in the Plains/Forest.
     
     RULES:
-    1. Narrative: Concise, immersive.
-    2. Mechanics: 
-       - If player says "Walk North" and it's possible, set 'movement_direction' to 'NORTH'.
-       - Assign a 'current_terrain_type' that matches the location description.
-    3. Inventory: Manage items logically.
-    4. Difficulty: Fair but challenging.
+    1. **Strict Realism**: Do NOT be accommodating. If the player looks for a path in a dense thicket, tell them there is none. If they search for gold in a pauper's hut, they find nothing.
+    2. **Inferred Movement**: If the player says "I walk to the tower" or "I follow the river", you MUST calculate which cardinal direction (NORTH, SOUTH, EAST, WEST) that likely represents and return it in 'movement_direction'. Do not return 'NONE' if they travelled.
+    3. **Map Awareness**: If the user moves, you MUST update 'current_terrain_type' to match the new location (e.g., if they enter a cave, use DUNGEON).
+    4. **Narrative**: Keep it crisp. 2-3 sentences.
     
     CURRENT CONTEXT:
     ${JSON.stringify(contextSummary, null, 2)}
@@ -148,7 +151,7 @@ export const generateGameTurn = async (
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
         responseSchema: aiResponseSchema,
-        temperature: 0.7, 
+        temperature: 0.5, // Lower temperature for more consistent rule-following
       },
     });
 

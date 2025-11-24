@@ -61,6 +61,7 @@ export interface Coordinates {
 
 // --- STATE ---
 export interface GameState {
+  id: string; // Unique Save ID
   player: {
     name: string;
     stats: CharacterStats;

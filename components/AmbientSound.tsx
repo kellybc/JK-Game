@@ -3,8 +3,12 @@ import React, { useEffect, useRef, useState } from 'react';
 export const AmbientSound = () => {
     const [isPlaying, setIsPlaying] = useState(false);
     const audioContextRef = useRef<AudioContext | null>(null);
-    const oscillatorsRef = useRef<OscillatorNode[]>([]);
-    const gainNodesRef = useRef<GainNode[]>([]);
+    const nextNoteTimeRef = useRef<number>(0);
+    const timerRef = useRef<number | null>(null);
+
+    // E Minor Pentatonic Scale Frequencies (spanning a few octaves)
+    // E3, G3, A3, B3, D4, E4, G4, A4
+    const scale = [164.81, 196.00, 220.00, 246.94, 293.66, 329.63, 392.00, 440.00];
 
     const toggleSound = () => {
         if (isPlaying) {
@@ -14,63 +18,86 @@ export const AmbientSound = () => {
         }
     };
 
-    const startSound = () => {
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const playNote = (ctx: AudioContext) => {
+        // Pick a random note from the scale
+        const freq = scale[Math.floor(Math.random() * scale.length)];
+        
+        // Create Oscillator (Triangle for flute-like, Sine for bell-like)
+        const osc = ctx.createOscillator();
+        osc.type = Math.random() > 0.5 ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+        // Envelope (ADSR-ish)
+        const gain = ctx.createGain();
+        const now = ctx.currentTime;
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.1, now + 0.5); // Attack
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 4.0); // Long Release
+
+        // Simple Reverb/Echo Simulation using Delay
+        const delay = ctx.createDelay();
+        delay.delayTime.value = 0.4; // 400ms echo
+        
+        const delayFeedback = ctx.createGain();
+        delayFeedback.gain.value = 0.3; // 30% feedback
+
+        const delayFilter = ctx.createBiquadFilter();
+        delayFilter.type = 'lowpass';
+        delayFilter.frequency.value = 1000; // Dampen high frequencies on repeats
+
+        // Connections:
+        // Osc -> Gain -> Output
+        // Gain -> Delay -> Feedback -> Filter -> Delay (Loop)
+        // Delay -> Output
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        // Echo Path
+        gain.connect(delay);
+        delay.connect(delayFeedback);
+        delayFeedback.connect(delayFilter);
+        delayFilter.connect(delay);
+        delay.connect(ctx.destination);
+
+        osc.start();
+        osc.stop(now + 5.0);
+    };
+
+    const scheduler = () => {
+        if (!audioContextRef.current) return;
+        const ctx = audioContextRef.current;
+
+        // While there are notes that will need to play before the next interval
+        while (nextNoteTimeRef.current < ctx.currentTime + 0.1) {
+            playNote(ctx);
+            // Schedule next note randomly between 2 and 6 seconds
+            nextNoteTimeRef.current += 2 + Math.random() * 4;
         }
         
-        const ctx = audioContextRef.current;
-        if (ctx?.state === 'suspended') {
+        timerRef.current = window.setTimeout(scheduler, 250);
+    };
+
+    const startSound = () => {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx = new AudioCtx();
+        audioContextRef.current = ctx;
+
+        if (ctx.state === 'suspended') {
             ctx.resume();
         }
-
-        // Master Gain
-        const masterGain = ctx!.createGain();
-        masterGain.gain.setValueAtTime(0.15, ctx!.currentTime); // Low volume
-        masterGain.connect(ctx!.destination);
-
-        // Create a chord of sine waves for a "Drone" effect
-        // Frequencies chosen for a mystical, slightly minor/suspended feel
-        const freqs = [110, 164.81, 196.00, 220]; // A2, E3, G3, A3
         
-        freqs.forEach((freq, i) => {
-            const osc = ctx!.createOscillator();
-            const gain = ctx!.createGain();
-            
-            osc.type = i % 2 === 0 ? 'sine' : 'triangle';
-            osc.frequency.setValueAtTime(freq, ctx!.currentTime);
-            
-            // Add slight detuning for richness
-            osc.detune.setValueAtTime(Math.random() * 10 - 5, ctx!.currentTime);
-
-            // LFO for volume to make it "breathe"
-            const lfo = ctx!.createOscillator();
-            lfo.type = 'sine';
-            lfo.frequency.setValueAtTime(0.1 + (Math.random() * 0.1), ctx!.currentTime); // Very slow
-            const lfoGain = ctx!.createGain();
-            lfoGain.gain.setValueAtTime(0.3, ctx!.currentTime); // Modulation depth
-            
-            lfo.connect(lfoGain.gain);
-            // Connect LFO to the oscillator's gain
-            // Note: This is a simplified modulation logic for brevity
-            
-            gain.gain.setValueAtTime(0.1, ctx!.currentTime);
-            
-            osc.connect(gain);
-            gain.connect(masterGain);
-            osc.start();
-
-            oscillatorsRef.current.push(osc);
-            gainNodesRef.current.push(gain);
-        });
-
+        nextNoteTimeRef.current = ctx.currentTime + 0.1;
+        scheduler();
         setIsPlaying(true);
     };
 
     const stopSound = () => {
-        oscillatorsRef.current.forEach(osc => osc.stop());
-        oscillatorsRef.current = [];
-        gainNodesRef.current = [];
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+        }
         setIsPlaying(false);
     };
 
@@ -86,9 +113,9 @@ export const AmbientSound = () => {
                 ? 'bg-mythic-gold text-mythic-900 border-mythic-gold' 
                 : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
             }`}
-            title={isPlaying ? "Mute Ambient Sound" : "Enable Ambient Sound"}
+            title={isPlaying ? "Mute Music" : "Play Music"}
         >
-            {isPlaying ? '🔊' : '🔇'}
+            {isPlaying ? '🎵' : '🔇'}
         </button>
     );
 };
