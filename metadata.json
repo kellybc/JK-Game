@@ -1,0 +1,5 @@
+{
+  "name": "Aetheria Chronicles",
+  "description": "A generative AI-powered RPG where interactions, combat, and exploration are orchestrated by a dynamic Dungeon Master. Features persistent state, inventory management, and NPC memory.",
+  "requestFramePermissions": []
+}
