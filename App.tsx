@@ -317,9 +317,18 @@ export default function App() {
 
       <main className="flex-1 flex flex-col md:flex-row overflow-hidden md:border-x border-slate-700 bg-slate-950">
         
-        <section className="flex-1 flex flex-col min-w-0 order-2 md:order-1 relative z-10">
-          <GameLog logs={state.gameLog} isThinking={isProcessing} />
+        <section className="flex-1 flex flex-col min-w-0 order-2 md:order-1 relative z-10 h-full">
+          {/* Main Map Display Area - Prominent and larger */}
+          <div className="flex-none p-4 bg-slate-900 border-b border-slate-800 flex justify-center shadow-inner">
+            <MapDisplay position={state.player.position} mapData={state.world.mapData} />
+          </div>
+
+          {/* Game Narrative Log */}
+          <div className="flex-1 overflow-hidden flex flex-col bg-slate-950">
+            <GameLog logs={state.gameLog} isThinking={isProcessing} />
+          </div>
           
+          {/* Input Area */}
           <div className="p-4 bg-mythic-900 border-t border-slate-700">
              {!state.isGameOver && suggestions.length > 0 && (
                <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
@@ -357,11 +366,9 @@ export default function App() {
           </div>
         </section>
 
-        <section className="w-full md:w-80 bg-mythic-900 border-l border-slate-700 flex flex-col gap-4 p-4 overflow-y-auto order-1 md:order-2 h-64 md:h-auto border-b md:border-b-0">
-          <MapDisplay position={state.player.position} mapData={state.world.mapData} />
-          
+        {/* Sidebar - Stats and Inventory */}
+        <section className="w-full md:w-80 bg-mythic-900 border-l border-slate-700 flex flex-col gap-4 p-4 overflow-y-auto order-1 md:order-2 h-48 md:h-auto border-b md:border-b-0 shadow-xl z-20">
           <StatusCard stats={state.player.stats} />
-          
           <Inventory items={state.player.inventory} onDropItem={handleDropItem} />
         </section>
         

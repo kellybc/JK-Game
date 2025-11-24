@@ -6,31 +6,31 @@ interface MapDisplayProps {
     mapData: WorldMap;
 }
 
-const TILE_SIZE = 40; // px
-const VIEW_RADIUS = 2; // How many tiles to show in each direction (5x5 grid)
+const VIEW_RADIUS = 4; // 4 radius = 9x9 grid
+const TILE_SIZE_CLASS = "w-8 h-8 md:w-10 md:h-10";
 
 const tileColors: Record<TileType, string> = {
-    [TileType.TOWN]: 'bg-amber-900/40 border-amber-700',
-    [TileType.FOREST]: 'bg-emerald-900/40 border-emerald-800',
-    [TileType.MOUNTAIN]: 'bg-slate-600/40 border-slate-500',
-    [TileType.DUNGEON]: 'bg-purple-900/40 border-purple-800',
-    [TileType.PLAINS]: 'bg-yellow-900/20 border-yellow-800',
-    [TileType.WATER]: 'bg-blue-900/40 border-blue-700',
-    [TileType.UNKNOWN]: 'bg-black/50 border-slate-800',
+    [TileType.TOWN]: 'bg-amber-900/60 border-amber-600 shadow-[inset_0_0_10px_rgba(251,191,36,0.2)]',
+    [TileType.FOREST]: 'bg-emerald-900/60 border-emerald-700 shadow-[inset_0_0_10px_rgba(16,185,129,0.2)]',
+    [TileType.MOUNTAIN]: 'bg-slate-700/60 border-slate-500 shadow-[inset_0_0_10px_rgba(148,163,184,0.2)]',
+    [TileType.DUNGEON]: 'bg-purple-950/80 border-purple-800 shadow-[inset_0_0_10px_rgba(168,85,247,0.2)]',
+    [TileType.PLAINS]: 'bg-yellow-900/30 border-yellow-800',
+    [TileType.WATER]: 'bg-blue-900/50 border-blue-600',
+    [TileType.UNKNOWN]: 'bg-black border-slate-900',
 };
 
 const tileIcons: Record<TileType, string> = {
-    [TileType.TOWN]: '🏠',
+    [TileType.TOWN]: '🏰',
     [TileType.FOREST]: '🌲',
     [TileType.MOUNTAIN]: '⛰️',
     [TileType.DUNGEON]: '💀',
     [TileType.PLAINS]: '🌾',
     [TileType.WATER]: '🌊',
-    [TileType.UNKNOWN]: '☁️',
+    [TileType.UNKNOWN]: '',
 };
 
 export const MapDisplay: React.FC<MapDisplayProps> = ({ position, mapData }) => {
-    // Generate the 5x5 grid relative to player
+    // Generate grid relative to player
     const grid: { x: number; y: number; data: { type: TileType; visited: boolean } | null }[] = [];
 
     for (let dy = VIEW_RADIUS; dy >= -VIEW_RADIUS; dy--) {
@@ -47,39 +47,43 @@ export const MapDisplay: React.FC<MapDisplayProps> = ({ position, mapData }) => 
     }
 
     return (
-        <div className="bg-mythic-800 border border-slate-600 rounded-lg p-4 shadow-lg mb-4 flex flex-col items-center">
-            <div className="flex justify-between w-full border-b border-slate-600 pb-2 mb-3">
-                 <h3 className="text-mythic-gold font-serif text-lg font-bold">Overhead Map</h3>
-                 <span className="font-mono text-xs text-slate-500">
-                    Pos: {position.x}, {position.y}
-                 </span>
+        <div className="relative group">
+            <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 text-mythic-gold/50 text-xs font-serif tracking-widest uppercase">
+                North
             </div>
             
             <div 
-                className="grid grid-cols-5 gap-1 bg-slate-950 p-2 rounded border border-slate-800"
-                style={{ width: 'fit-content' }}
+                className="grid gap-1 p-3 rounded-lg border-2 border-slate-700 bg-slate-950 shadow-2xl relative"
+                style={{ 
+                    gridTemplateColumns: `repeat(${VIEW_RADIUS * 2 + 1}, minmax(0, 1fr))` 
+                }}
             >
+                {/* Compass details */}
+                <div className="absolute top-2 right-2 text-[10px] text-slate-600 font-mono">
+                    X:{position.x} Y:{position.y}
+                </div>
+
                 {grid.map((cell) => {
                     const isPlayer = cell.x === position.x && cell.y === position.y;
                     const tileData = cell.data || { type: TileType.UNKNOWN, visited: false };
-                    // If we haven't visited it, it's Fog of War (Unknown), unless it's adjacent? 
-                    // Let's keep it simple: if it's in the mapData, show it. If not, show Unknown.
-                    
+                    const isUnknown = tileData.type === TileType.UNKNOWN;
+
                     return (
                         <div 
                             key={`${cell.x},${cell.y}`}
                             className={`
-                                w-10 h-10 flex items-center justify-center text-lg rounded-sm border
+                                ${TILE_SIZE_CLASS} flex items-center justify-center text-lg rounded-sm border
                                 ${tileColors[tileData.type]}
-                                ${isPlayer ? 'ring-2 ring-white shadow-[0_0_10px_rgba(255,255,255,0.5)] z-10' : ''}
-                                transition-all duration-500
+                                ${isPlayer ? 'ring-2 ring-white z-10 shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110' : ''}
+                                ${!isUnknown && !isPlayer ? 'opacity-80' : ''}
+                                transition-all duration-300
                             `}
                             title={`(${cell.x}, ${cell.y}) ${tileData.type}`}
                         >
                             {isPlayer ? (
-                                <span className="animate-pulse">🧙</span>
+                                <span className="animate-pulse drop-shadow-md">🧙‍♂️</span>
                             ) : (
-                                <span className="opacity-70 grayscale hover:grayscale-0 transition-all">
+                                <span className="opacity-90">
                                     {tileIcons[tileData.type]}
                                 </span>
                             )}
@@ -87,8 +91,9 @@ export const MapDisplay: React.FC<MapDisplayProps> = ({ position, mapData }) => 
                     );
                 })}
             </div>
-            <div className="mt-2 text-xs text-slate-500 italic">
-                North is Up (+Y)
+            
+            <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-slate-700 text-xs font-serif tracking-widest uppercase">
+                South
             </div>
         </div>
     );
