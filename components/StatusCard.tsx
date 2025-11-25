@@ -1,24 +1,29 @@
 import React from 'react';
-import { CharacterStats } from '../types';
+import { CharacterStats, Item } from '../types';
 
 interface StatusCardProps {
   stats: CharacterStats;
+  inventory: Item[];
 }
 
 const ProgressBar = ({ value, max, colorClass }: { value: number; max: number; colorClass: string }) => {
   const percent = Math.min(100, Math.max(0, (value / max) * 100));
   return (
     <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden mt-1">
-      <div 
-        className={`h-full ${colorClass} transition-all duration-500`} 
-        style={{ width: `${percent}%` }}
-      />
+      <div className={`h-full ${colorClass} transition-all duration-500`} style={{ width: `${percent}%` }} />
     </div>
   );
 };
 
-export const StatusCard: React.FC<StatusCardProps> = ({ stats }) => {
-  return (
+export const StatusCard: React.FC<StatusCardProps> = ({ stats, inventory }) => {
+    // Calculate total stats including equipped items
+    const equippedItems = inventory.filter(i => i.equipped);
+    const bonusStr = equippedItems.reduce((acc, i) => acc + (i.effect?.stat === 'strength' ? i.effect.value : 0), 0);
+    const bonusDef = equippedItems.reduce((acc, i) => acc + (i.effect?.stat === 'defense' ? i.effect.value : 0), 0);
+    const totalStr = stats.strength + bonusStr;
+    const totalDef = stats.defense + bonusDef;
+
+    return (
     <div className="bg-mythic-800 border border-slate-600 rounded-lg p-4 shadow-lg">
       <h3 className="text-mythic-gold font-serif text-lg font-bold border-b border-slate-600 pb-2 mb-3">
         Character Status
@@ -30,7 +35,6 @@ export const StatusCard: React.FC<StatusCardProps> = ({ stats }) => {
              <span>Level {stats.level}</span>
              <span>XP: {stats.xp}</span>
            </div>
-           {/* Simple XP bar visual, strictly decorative since max XP logic is hidden */}
            <div className="w-full bg-slate-700 h-1 rounded-full overflow-hidden">
              <div className="h-full bg-blue-500" style={{ width: `${(stats.xp % 100)}%` }} />
            </div>
@@ -46,11 +50,17 @@ export const StatusCard: React.FC<StatusCardProps> = ({ stats }) => {
 
         <div>
            <span className="block text-slate-400 text-xs uppercase">STR</span>
-           <span className="text-xl font-mono text-slate-200">{stats.strength}</span>
+           <div className="flex items-baseline gap-1">
+               <span className="text-xl font-mono text-slate-200">{totalStr}</span>
+               {bonusStr > 0 && <span className="text-xs text-emerald-400">(+{bonusStr})</span>}
+           </div>
         </div>
         <div>
            <span className="block text-slate-400 text-xs uppercase">DEF</span>
-           <span className="text-xl font-mono text-slate-200">{stats.defense}</span>
+           <div className="flex items-baseline gap-1">
+               <span className="text-xl font-mono text-slate-200">{totalDef}</span>
+               {bonusDef > 0 && <span className="text-xs text-emerald-400">(+{bonusDef})</span>}
+           </div>
         </div>
 
         <div className="col-span-2 mt-2 pt-2 border-t border-slate-700 flex justify-between items-center">

@@ -27,8 +27,17 @@ const aiResponseSchema: Schema = {
           description: { type: Type.STRING },
           type: { type: Type.STRING, enum: Object.values(ItemType) },
           quantity: { type: Type.INTEGER },
+          weight: { type: Type.NUMBER },
+          slot: { type: Type.STRING, enum: ['hand', 'body', 'head', 'accessory', 'none'] },
+          effect: { 
+              type: Type.OBJECT,
+              properties: {
+                  stat: { type: Type.STRING, enum: ['strength', 'defense', 'hp', 'maxHp'] },
+                  value: { type: Type.INTEGER }
+              }
+          }
         },
-        required: ["id", "name", "description", "type", "quantity"]
+        required: ["id", "name", "description", "type", "quantity", "weight"]
       }
     },
     items_removed_names: {
@@ -63,17 +72,24 @@ const aiResponseSchema: Schema = {
       items: { type: Type.STRING }
     },
     is_game_over: { type: Type.BOOLEAN },
-    // NEW MAP FIELDS
+    // MAP FIELDS
     movement_direction: {
       type: Type.STRING,
       enum: ['NORTH', 'SOUTH', 'EAST', 'WEST', 'NONE'],
-      description: "Direction the player moved this turn. If they just say 'follow path' or 'go to clearing', you MUST infer the cardinal direction."
+      description: "Direction the player moved this turn. Infer from narrative if needed."
     },
     current_terrain_type: {
       type: Type.STRING,
       enum: Object.values(TileType),
-      description: "The visual terrain type of the CURRENT location (after movement)."
-    }
+      description: "The visual terrain type of the CURRENT location."
+    },
+    // COMBAT FIELDS
+    combat_start: { type: Type.BOOLEAN, description: "True if a new fight begins this turn." },
+    enemy_name: { type: Type.STRING },
+    enemy_desc: { type: Type.STRING },
+    enemy_hp: { type: Type.INTEGER, description: "Starting HP of new enemy." },
+    enemy_damage_taken: { type: Type.INTEGER, description: "Damage dealt to enemy this turn." },
+    combat_ended: { type: Type.BOOLEAN, description: "True if the enemy is defeated or player fled." }
   },
   required: [
     "narrative",
@@ -94,7 +110,6 @@ export const generateGameTurn = async (
 ): Promise<AIResponse> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    console.error("API Key is missing.");
     return {
       narrative: "Configuration Error: API_KEY is missing.",
       hp_change: 0,
@@ -111,10 +126,22 @@ export const generateGameTurn = async (
 
   const ai = new GoogleGenAI({ apiKey });
 
+  // Calculate equipped stats for context
+  const equippedItems = currentState.player.inventory.filter(i => i.equipped);
+  const totalStr = currentState.player.stats.strength + equippedItems.reduce((acc, i) => acc + (i.effect?.stat === 'strength' ? i.effect.value : 0), 0);
+  const totalDef = currentState.player.stats.defense + equippedItems.reduce((acc, i) => acc + (i.effect?.stat === 'defense' ? i.effect.value : 0), 0);
+  
+  // Calculate weight
+  const totalWeight = currentState.player.inventory.reduce((acc, i) => acc + (i.weight * i.quantity), 0);
+  const maxWeight = totalStr * 2;
+  const isOverencumbered = totalWeight > maxWeight;
+
   const contextSummary = {
     player: {
-      stats: currentState.player.stats,
-      inventory: currentState.player.inventory.map(i => `${i.name} (${i.quantity})`),
+      base_stats: currentState.player.stats,
+      effective_combat_stats: { strength: totalStr, defense: totalDef },
+      encumbrance: { current: totalWeight, max: maxWeight, is_overencumbered: isOverencumbered },
+      inventory: currentState.player.inventory.map(i => `${i.name} ${i.equipped ? '(Equipped)' : ''} (x${i.quantity})`),
       position: currentState.player.position, 
     },
     world: {
@@ -123,23 +150,33 @@ export const generateGameTurn = async (
       time: currentState.world.timeOfDay,
       map_tile_type: currentState.world.mapData.tiles[`${currentState.player.position.x},${currentState.player.position.y}`]?.type
     },
+    combat_active: currentState.combat.isActive,
+    enemy_status: currentState.combat.isActive ? {
+        name: currentState.combat.enemyName,
+        current_hp: currentState.combat.enemyHp
+    } : null,
     recent_history: currentState.gameLog.slice(-5).map(log => `${log.sender}: ${log.content}`).join("\n"),
   };
 
   const systemPrompt = `
     You are the Dungeon Master for 'Aetheria Chronicles'. 
     
-    CAMPAIGN GOAL:
-    The player is a generic adventurer who must find the "Aether Core" to stop the "Voidbound" corruption. 
-    The Core is hidden deep in a Dungeon, but they start in the Plains/Forest.
+    CAMPAIGN GOAL: Find the "Aether Core" deep in a Dungeon. Start in Plains/Forest.
     
-    RULES:
-    1. **Strict Realism**: Do NOT be accommodating. If the player looks for a path in a dense thicket, tell them there is none. If they search for gold in a pauper's hut, they find nothing.
-    2. **Inferred Movement**: If the player says "I walk to the tower" or "I follow the river", you MUST calculate which cardinal direction (NORTH, SOUTH, EAST, WEST) that likely represents and return it in 'movement_direction'. Do not return 'NONE' if they travelled.
-    3. **Map Awareness**: If the user moves, you MUST update 'current_terrain_type' to match the new location (e.g., if they enter a cave, use DUNGEON).
-    4. **Narrative**: Keep it crisp. 2-3 sentences.
+    COMBAT RULES:
+    1. If the player attacks an enemy, resolve the round. The player will provide a DICE ROLL (d20). Use it + their Strength to determine hit/damage.
+    2. If an enemy appears, set 'combat_start': true, and provide 'enemy_name', 'enemy_hp', 'enemy_desc'.
+    3. If the enemy dies, set 'combat_ended': true.
     
-    CURRENT CONTEXT:
+    INVENTORY RULES:
+    1. If 'is_overencumbered' is true, the player moves slower and has disadvantage in combat (narrate this).
+    2. Items should have realistic weights (e.g., Dagger 1.0, Armor 10.0, Potion 0.1).
+    
+    MAP RULES:
+    1. 'movement_direction': If player walks/moves, infer NORTH/SOUTH/EAST/WEST.
+    2. 'current_terrain_type': Must match the environment (TOWN, FOREST, DUNGEON, etc.).
+    
+    CONTEXT:
     ${JSON.stringify(contextSummary, null, 2)}
   `;
 
@@ -151,7 +188,7 @@ export const generateGameTurn = async (
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
         responseSchema: aiResponseSchema,
-        temperature: 0.5, // Lower temperature for more consistent rule-following
+        temperature: 0.7, 
       },
     });
 
@@ -159,7 +196,6 @@ export const generateGameTurn = async (
     if (!text) throw new Error("No response");
     
     const rawData = JSON.parse(text) as RawAIResponse;
-
     const memoryRecord: Record<string, string> = {};
     if (rawData.updated_npc_memories) {
         rawData.updated_npc_memories.forEach(item => {
@@ -167,24 +203,27 @@ export const generateGameTurn = async (
         });
     }
 
-    return {
-        ...rawData,
-        updated_npc_memories: memoryRecord
-    } as AIResponse;
+    return { ...rawData, updated_npc_memories: memoryRecord } as AIResponse;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini API Error:", error);
+    
+    // Improved Error Handling for UI
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Check for Rate Limits (429)
+    if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
+        return {
+            narrative: "A sudden wave of exhaustion washes over you. The magical energies of the world are too dense right now. You must catch your breath for a moment. (Rate Limit Reached - Please wait 5 seconds before acting)",
+            hp_change: 0, xp_gained: 0, supplies_consumed: 0, items_added: [], items_removed_names: [],
+            suggested_actions: ["Wait"], is_game_over: false, movement_direction: 'NONE', current_terrain_type: TileType.UNKNOWN
+        };
+    }
+
     return {
-      narrative: `The mists of time obscure your path. (API Error: ${error instanceof Error ? error.message : "Unknown"})`,
-      hp_change: 0,
-      xp_gained: 0,
-      supplies_consumed: 0,
-      items_added: [],
-      items_removed_names: [],
-      suggested_actions: ["Wait"],
-      is_game_over: false,
-      movement_direction: 'NONE',
-      current_terrain_type: TileType.UNKNOWN
+      narrative: "The mists of reality swirl chaotically, preventing your action. (The Dungeon Master is confused. Please try again.)",
+      hp_change: 0, xp_gained: 0, supplies_consumed: 0, items_added: [], items_removed_names: [],
+      suggested_actions: ["Wait"], is_game_over: false, movement_direction: 'NONE', current_terrain_type: TileType.UNKNOWN
     };
   }
 };
