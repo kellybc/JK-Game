@@ -7,6 +7,9 @@ import { GameLog } from './components/GameLog';
 import { MapDisplay } from './components/MapDisplay';
 import { CombatView } from './components/CombatView';
 import { AmbientSound } from './components/AmbientSound';
+import { supabase, isSupabaseConfigured } from './services/supabaseClient';
+import { User } from '@supabase/supabase-js';
+import { Cloud, Save, LogIn } from 'lucide-react';
 
 // --- INITIAL STATE GENERATOR ---
 const createInitialState = (characterName: string): GameState => ({
@@ -193,7 +196,7 @@ const gameReducer = (state: GameState, action: Action): GameState => {
       break;
   }
 
-  // Auto-save logic
+  // Auto-save logic (Local Storage)
   if (action.type !== 'GAME_OVER') {
       const saves = JSON.parse(localStorage.getItem('aetheria_saves') || '{}');
       if (newState.id) {
@@ -205,37 +208,147 @@ const gameReducer = (state: GameState, action: Action): GameState => {
   return newState;
 };
 
-// --- MAIN MENU COMPONENT ---
-const MainMenu = ({ onStart, onLoad }: { onStart: (name: string) => void, onLoad: (id: string) => void }) => {
+// --- AUTH & MAIN MENU COMPONENT ---
+const MainMenu = ({ onStart, onLoad }: { onStart: (name: string) => void, onLoad: (state: GameState) => void }) => {
     const [name, setName] = useState('');
-    const [saves, setSaves] = useState<GameState[]>([]);
+    const [localSaves, setLocalSaves] = useState<GameState[]>([]);
+    const [cloudSaves, setCloudSaves] = useState<any[]>([]);
+    const [user, setUser] = useState<User | null>(null);
+    const [authEmail, setAuthEmail] = useState('');
+    const [authPassword, setAuthPassword] = useState('');
+    const [authMode, setAuthMode] = useState<'LOGIN' | 'SIGNUP'>('LOGIN');
+    const [authMessage, setAuthMessage] = useState('');
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
+        // Load Local Saves
         const savedData = JSON.parse(localStorage.getItem('aetheria_saves') || '{}');
-        setSaves(Object.values(savedData));
+        setLocalSaves(Object.values(savedData));
+
+        // Check Supabase Session
+        if (supabase) {
+            supabase.auth.getUser().then(({ data: { user } }) => {
+                setUser(user);
+                if (user) fetchCloudSaves();
+            });
+            
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                setUser(session?.user ?? null);
+                if (session?.user) fetchCloudSaves();
+                else setCloudSaves([]);
+            });
+
+            return () => subscription.unsubscribe();
+        }
     }, []);
+
+    const fetchCloudSaves = async () => {
+        if (!supabase) return;
+        setLoading(true);
+        const { data, error } = await supabase.from('game_saves').select('*').order('updated_at', { ascending: false });
+        if (!error && data) {
+            setCloudSaves(data);
+        }
+        setLoading(false);
+    };
+
+    const handleAuth = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!supabase) return;
+        setAuthMessage('');
+        
+        try {
+            if (authMode === 'LOGIN') {
+                const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+                if (error) throw error;
+            } else {
+                const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+                if (error) throw error;
+                setAuthMessage('Check your email for confirmation!');
+            }
+        } catch (err: any) {
+            setAuthMessage(err.message);
+        }
+    };
+
+    const loadCloudSave = (saveData: any) => {
+        onLoad(saveData);
+    };
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-mythic-900 text-slate-200 p-4">
             <h1 className="text-4xl md:text-6xl font-serif text-mythic-gold mb-8 tracking-widest text-center">AETHERIA CHRONICLES</h1>
-            <div className="w-full max-w-md space-y-8">
-                <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-xl">
-                    <h2 className="text-xl font-bold mb-4 text-white">New Adventure</h2>
-                    <input type="text" placeholder="Enter Character Name" className="w-full bg-slate-900 border border-slate-600 p-3 rounded mb-4 text-white outline-none" value={name} onChange={(e) => setName(e.target.value)} />
-                    <button onClick={() => name && onStart(name)} disabled={!name} className="w-full bg-mythic-gold hover:bg-amber-400 text-mythic-900 font-bold py-3 rounded transition-colors disabled:opacity-50">Begin Journey</button>
-                </div>
-                {saves.length > 0 && (
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
+                
+                {/* LEFT COL: NEW GAME & LOCAL SAVES */}
+                <div className="space-y-6">
                     <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-xl">
-                        <h2 className="text-xl font-bold mb-4 text-white">Load Game</h2>
-                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2 scrollbar-hide">
-                            {saves.map(save => (
-                                <button key={save.id} onClick={() => onLoad(save.id)} className="w-full text-left bg-slate-700 hover:bg-slate-600 p-3 rounded flex justify-between items-center group transition-colors">
-                                    <div><div className="font-bold text-mythic-gold">{save.player.name}</div><div className="text-xs text-slate-400">Level {save.player.stats.level} • {save.world.locationName}</div></div>
-                                </button>
-                            ))}
-                        </div>
+                        <h2 className="text-xl font-bold mb-4 text-white">New Adventure</h2>
+                        <input type="text" placeholder="Enter Character Name" className="w-full bg-slate-900 border border-slate-600 p-3 rounded mb-4 text-white outline-none" value={name} onChange={(e) => setName(e.target.value)} />
+                        <button onClick={() => name && onStart(name)} disabled={!name} className="w-full bg-mythic-gold hover:bg-amber-400 text-mythic-900 font-bold py-3 rounded transition-colors disabled:opacity-50">Begin Journey</button>
                     </div>
-                )}
+
+                    {localSaves.length > 0 && (
+                        <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-xl">
+                            <h2 className="text-xl font-bold mb-4 text-white">Local Saves</h2>
+                            <div className="space-y-2 max-h-48 overflow-y-auto pr-2 scrollbar-hide">
+                                {localSaves.map(save => (
+                                    <button key={save.id} onClick={() => onLoad(save)} className="w-full text-left bg-slate-700 hover:bg-slate-600 p-3 rounded flex justify-between items-center group transition-colors">
+                                        <div><div className="font-bold text-mythic-gold">{save.player.name}</div><div className="text-xs text-slate-400">Level {save.player.stats.level} • {save.world.locationName}</div></div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* RIGHT COL: AUTH & CLOUD SAVES */}
+                <div className="space-y-6">
+                    {!isSupabaseConfigured() ? (
+                        <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 border-dashed opacity-75">
+                            <h2 className="text-xl font-bold mb-2 text-slate-400">Cloud Sync Unavailable</h2>
+                            <p className="text-sm text-slate-500">Connect Supabase to enable cloud saves.</p>
+                        </div>
+                    ) : !user ? (
+                        <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 shadow-xl">
+                            <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2"><LogIn size={20}/> Cloud Login</h2>
+                            <form onSubmit={handleAuth} className="space-y-3">
+                                <input type="email" placeholder="Email" className="w-full bg-slate-900 border border-slate-600 p-2 rounded text-white" value={authEmail} onChange={e => setAuthEmail(e.target.value)} />
+                                <input type="password" placeholder="Password" className="w-full bg-slate-900 border border-slate-600 p-2 rounded text-white" value={authPassword} onChange={e => setAuthPassword(e.target.value)} />
+                                <div className="flex gap-2">
+                                    <button type="submit" onClick={() => setAuthMode('LOGIN')} className="flex-1 bg-slate-600 hover:bg-slate-500 py-2 rounded">Login</button>
+                                    <button type="submit" onClick={() => setAuthMode('SIGNUP')} className="flex-1 bg-slate-700 hover:bg-slate-600 py-2 rounded">Sign Up</button>
+                                </div>
+                                {authMessage && <p className="text-xs text-amber-400 mt-2">{authMessage}</p>}
+                            </form>
+                        </div>
+                    ) : (
+                        <div className="bg-slate-800 p-6 rounded-lg border border-mythic-gold shadow-xl relative">
+                             <button onClick={() => supabase?.auth.signOut()} className="absolute top-4 right-4 text-xs text-slate-500 hover:text-white">Sign Out</button>
+                             <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2"><Cloud size={20} className="text-mythic-gold"/> Cloud Saves</h2>
+                             <p className="text-xs text-slate-400 mb-4">Logged in as {user.email}</p>
+                             
+                             {loading ? <p className="text-slate-500">Loading...</p> : (
+                                 <div className="space-y-2 max-h-64 overflow-y-auto pr-2 scrollbar-hide">
+                                    {cloudSaves.length === 0 ? <p className="text-sm text-slate-500 italic">No cloud saves found.</p> : 
+                                        cloudSaves.map(save => (
+                                            <button key={save.id} onClick={() => loadCloudSave(save.game_state)} className="w-full text-left bg-slate-700 hover:bg-slate-600 p-3 rounded flex justify-between items-center group transition-colors border border-slate-600 hover:border-mythic-gold">
+                                                <div>
+                                                    <div className="font-bold text-emerald-400">{save.character_name}</div>
+                                                    <div className="text-xs text-slate-400">
+                                                        Lvl {save.game_state.player.stats.level} • {new Date(save.updated_at).toLocaleDateString()}
+                                                    </div>
+                                                </div>
+                                                <Cloud size={16} className="text-slate-500 group-hover:text-white"/>
+                                            </button>
+                                        ))
+                                    }
+                                 </div>
+                             )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -250,6 +363,7 @@ export default function App() {
   const [cooldown, setCooldown] = useState(false); // New Cooldown State
   const [suggestions, setSuggestions] = useState<string[]>(["Look around", "Check supplies"]);
   const [combatRolling, setCombatRolling] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'ERROR'>('IDLE');
 
   const startGame = (name: string) => {
       const newState = createInitialState(name);
@@ -258,9 +372,34 @@ export default function App() {
       setSuggestions(["Look around", "Check Inventory"]);
   };
 
-  const loadGame = (id: string) => {
-      const saves = JSON.parse(localStorage.getItem('aetheria_saves') || '{}');
-      if (saves[id]) { dispatch({ type: 'LOAD_STATE', payload: saves[id] }); setIsInMenu(false); }
+  const loadGame = (loadedState: GameState) => {
+      dispatch({ type: 'LOAD_STATE', payload: loadedState });
+      setIsInMenu(false);
+  };
+
+  const handleCloudSave = async () => {
+      if (!supabase) return;
+      setSaveStatus('SAVING');
+      try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error("Not logged in");
+
+          const { error } = await supabase.from('game_saves').upsert({
+              user_id: user.id,
+              save_id: state.id,
+              character_name: state.player.name,
+              game_state: state,
+              updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id, save_id' });
+
+          if (error) throw error;
+          setSaveStatus('SAVED');
+          setTimeout(() => setSaveStatus('IDLE'), 2000);
+      } catch (err) {
+          console.error("Save failed", err);
+          setSaveStatus('ERROR');
+          setTimeout(() => setSaveStatus('IDLE'), 3000);
+      }
   };
 
   const handleAction = async (actionText: string) => {
@@ -359,14 +498,29 @@ export default function App() {
            </div>
            <AmbientSound terrain={currentTerrain} />
         </div>
-        <div className="text-right">
+        <div className="flex items-center gap-4 text-right">
+            {isSupabaseConfigured() && !state.isGameOver && (
+                <button 
+                    onClick={handleCloudSave} 
+                    disabled={saveStatus !== 'IDLE'}
+                    className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold transition-all ${
+                        saveStatus === 'SAVED' ? 'bg-emerald-600 text-white' : 
+                        saveStatus === 'ERROR' ? 'bg-red-600 text-white' : 
+                        'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    }`}
+                >
+                    <Save size={14} />
+                    {saveStatus === 'SAVING' ? 'Syncing...' : saveStatus === 'SAVED' ? 'Saved' : saveStatus === 'ERROR' ? 'Error' : 'Cloud Save'}
+                </button>
+            )}
+
             {state.isGameOver ? (
                 <button onClick={() => setIsInMenu(true)} className="bg-red-600 text-white px-3 py-1 rounded text-sm font-bold animate-pulse">RESTART</button>
             ) : (
-                <>
-                <div className="text-xs text-slate-500 uppercase tracking-widest">Turn</div>
-                <div className="font-mono text-xl">{state.gameLog.length}</div>
-                </>
+                <div className="hidden md:block">
+                    <div className="text-xs text-slate-500 uppercase tracking-widest">Turn</div>
+                    <div className="font-mono text-xl">{state.gameLog.length}</div>
+                </div>
             )}
         </div>
       </header>
