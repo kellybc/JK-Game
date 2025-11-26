@@ -304,6 +304,9 @@ export default function App() {
   const [showJournal, setShowJournal] = useState(false);
   const userRef = useRef<User | null>(null);
 
+  // Determine if user can interact based on processing, game over, or cooldown state
+  const isInteractionDisabled = isProcessing || cooldown || state.isGameOver;
+
   useEffect(() => { if (supabase) supabase.auth.getUser().then(({ data: { user } }) => { userRef.current = user; }); }, []);
 
   const startGame = (name: string) => { dispatch({ type: 'LOAD_STATE', payload: createInitialState(name) }); setIsInMenu(false); setSuggestions(["Talk to Barkeep", "Check Inventory"]); };
@@ -379,7 +382,6 @@ export default function App() {
   const totalWeight = state.player.inventory.reduce((acc, i) => acc + (i.weight * i.quantity), 0);
   const maxWeight = state.player.stats.strength * 5; 
   const currentTerrain = state.world.mapData.tiles[`${state.player.position.x},${state.player.position.y}`]?.type || TileType.INN;
-  const isInteractionDisabled = isProcessing || cooldown || state.isGameOver;
 
   if (isInMenu) return <MainMenu onStart={startGame} onLoad={loadGame} />;
 
