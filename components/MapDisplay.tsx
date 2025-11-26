@@ -14,6 +14,7 @@ const TILE_SIZE_CLASS = "w-8 h-8 md:w-10 md:h-10";
 
 const tileColors: Record<TileType, string> = {
     [TileType.TOWN]: 'bg-amber-900/60 border-amber-600 shadow-[inset_0_0_10px_rgba(251,191,36,0.2)]',
+    [TileType.INN]: 'bg-orange-900/70 border-orange-600 shadow-[inset_0_0_10px_rgba(249,115,22,0.2)]',
     [TileType.FOREST]: 'bg-emerald-900/60 border-emerald-700 shadow-[inset_0_0_10px_rgba(16,185,129,0.2)]',
     [TileType.MOUNTAIN]: 'bg-slate-700/60 border-slate-500 shadow-[inset_0_0_10px_rgba(148,163,184,0.2)]',
     [TileType.DUNGEON]: 'bg-purple-950/80 border-purple-800 shadow-[inset_0_0_10px_rgba(168,85,247,0.2)]',
@@ -24,6 +25,7 @@ const tileColors: Record<TileType, string> = {
 
 const tileIcons: Record<TileType, string> = {
     [TileType.TOWN]: '🏰',
+    [TileType.INN]: '🍺',
     [TileType.FOREST]: '🌲',
     [TileType.MOUNTAIN]: '⛰️',
     [TileType.DUNGEON]: '💀',

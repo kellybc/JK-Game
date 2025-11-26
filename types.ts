@@ -70,6 +70,7 @@ export enum TileType {
 }
 
 export interface WorldMap {
+  // Key is "x,y" string (e.g. "0,0"), Value is the tile data
   tiles: Record<string, { type: TileType; visited: boolean }>;
 }
 
@@ -85,13 +86,13 @@ export interface CombatState {
   enemyHp?: number;
   enemyMaxHp?: number;
   enemyDescription?: string;
-  enemyType?: string; 
+  enemyType?: string; // For visual matching (e.g. "orc", "dragon")
   roundLog?: string[];
 }
 
 // --- STATE ---
 export interface GameState {
-  id: string; 
+  id: string; // Unique Save ID
   player: {
     name: string;
     class: string;
@@ -150,8 +151,8 @@ export interface AIResponse {
   combat_start?: boolean;
   enemy_name?: string;
   enemy_desc?: string;
-  enemy_type?: string; 
-  enemy_hp?: number; 
-  enemy_damage_taken?: number; 
+  enemy_type?: string; // e.g. "goblin", "beast"
+  enemy_hp?: number; // Starting HP
+  enemy_damage_taken?: number; // Damage enemy took this turn
   combat_ended?: boolean;
 }

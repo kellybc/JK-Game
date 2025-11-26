@@ -373,6 +373,14 @@ export default function App() {
       handleAction(narrative);
   };
 
+  const handleDropItem = (name: string) => dispatch({ type: 'DROP_ITEM', payload: name });
+  const handleEquipItem = (name: string) => dispatch({ type: 'EQUIP_ITEM', payload: name });
+  const handleUnequipItem = (name: string) => dispatch({ type: 'UNEQUIP_ITEM', payload: name });
+  const totalWeight = state.player.inventory.reduce((acc, i) => acc + (i.weight * i.quantity), 0);
+  const maxWeight = state.player.stats.strength * 5; 
+  const currentTerrain = state.world.mapData.tiles[`${state.player.position.x},${state.player.position.y}`]?.type || TileType.INN;
+  const isInteractionDisabled = isProcessing || cooldown || state.isGameOver;
+
   if (isInMenu) return <MainMenu onStart={startGame} onLoad={loadGame} />;
 
   return (
