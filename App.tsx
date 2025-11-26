@@ -1,4 +1,4 @@
-import React, { useReducer, useState, useCallback, useEffect } from 'react';
+import React, { useReducer, useState, useCallback, useEffect, useRef } from 'react';
 import { GameState, LogEntry, Item, CharacterStats, Quest, ItemType, TileType, CombatState } from './types';
 import { generateGameTurn } from './services/geminiService';
 import { StatusCard } from './components/StatusCard';
@@ -9,7 +9,7 @@ import { CombatView } from './components/CombatView';
 import { AmbientSound } from './components/AmbientSound';
 import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 import { User } from '@supabase/supabase-js';
-import { Cloud, Save, LogIn } from 'lucide-react';
+import { Cloud, Save, LogIn, CheckCircle } from 'lucide-react';
 
 // --- INITIAL STATE GENERATOR ---
 const createInitialState = (characterName: string): GameState => ({
@@ -196,7 +196,7 @@ const gameReducer = (state: GameState, action: Action): GameState => {
       break;
   }
 
-  // Auto-save logic (Local Storage)
+  // Local Storage Autosave
   if (action.type !== 'GAME_OVER') {
       const saves = JSON.parse(localStorage.getItem('aetheria_saves') || '{}');
       if (newState.id) {
@@ -360,10 +360,21 @@ export default function App() {
   const [state, dispatch] = useReducer(gameReducer, createInitialState("Traveler"));
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [cooldown, setCooldown] = useState(false); // New Cooldown State
+  const [cooldown, setCooldown] = useState(false); 
   const [suggestions, setSuggestions] = useState<string[]>(["Look around", "Check supplies"]);
   const [combatRolling, setCombatRolling] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'ERROR'>('IDLE');
+  const [localSaveIndicator, setLocalSaveIndicator] = useState(false);
+  const userRef = useRef<User | null>(null);
+
+  useEffect(() => {
+    // Determine user status once for autosave usage
+    if (supabase) {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+            userRef.current = user;
+        });
+    }
+  }, []);
 
   const startGame = (name: string) => {
       const newState = createInitialState(name);
@@ -377,13 +388,15 @@ export default function App() {
       setIsInMenu(false);
   };
 
-  const handleCloudSave = async () => {
+  const handleCloudSave = useCallback(async (isAuto = false) => {
       if (!supabase) return;
-      setSaveStatus('SAVING');
-      try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (!user) throw new Error("Not logged in");
+      
+      const user = userRef.current || (await supabase.auth.getUser()).data.user;
+      if (!user) return; // Autosave silently fails if not logged in
 
+      if (!isAuto) setSaveStatus('SAVING');
+      
+      try {
           const { error } = await supabase.from('game_saves').upsert({
               user_id: user.id,
               save_id: state.id,
@@ -393,14 +406,19 @@ export default function App() {
           }, { onConflict: 'user_id, save_id' });
 
           if (error) throw error;
-          setSaveStatus('SAVED');
-          setTimeout(() => setSaveStatus('IDLE'), 2000);
+          
+          if (!isAuto) {
+            setSaveStatus('SAVED');
+            setTimeout(() => setSaveStatus('IDLE'), 2000);
+          }
       } catch (err) {
           console.error("Save failed", err);
-          setSaveStatus('ERROR');
-          setTimeout(() => setSaveStatus('IDLE'), 3000);
+          if (!isAuto) {
+             setSaveStatus('ERROR');
+             setTimeout(() => setSaveStatus('IDLE'), 3000);
+          }
       }
-  };
+  }, [state]);
 
   const handleAction = async (actionText: string) => {
     if ((!actionText.trim() && !state.combat.isActive) || isProcessing || cooldown || state.isGameOver) return;
@@ -449,6 +467,15 @@ export default function App() {
       } else {
         setSuggestions(response.suggested_actions || []);
       }
+      
+      // Trigger Auto-saves
+      setLocalSaveIndicator(true);
+      setTimeout(() => setLocalSaveIndicator(false), 2000);
+      
+      // Attempt cloud autosave silently
+      if (isSupabaseConfigured()) {
+          handleCloudSave(true);
+      }
 
     } catch (error) {
       dispatch({ type: 'ADD_LOG', payload: { id: Date.now().toString(), sender: 'system', content: "API Error.", timestamp: Date.now() } });
@@ -480,7 +507,6 @@ export default function App() {
   const maxWeight = state.player.stats.strength * 2;
   const currentTerrain = state.world.mapData.tiles[`${state.player.position.x},${state.player.position.y}`]?.type || TileType.PLAINS;
 
-  // Combine processing, cooldown, or game over states to disable interaction
   const isInteractionDisabled = isProcessing || cooldown || state.isGameOver;
 
   if (isInMenu) return <MainMenu onStart={startGame} onLoad={loadGame} />;
@@ -491,26 +517,42 @@ export default function App() {
       
       <header className="flex-none p-4 md:rounded-t-xl bg-mythic-900 border-b border-slate-700 flex justify-between items-center">
         <div className="flex items-center gap-4">
-           <button onClick={() => setIsInMenu(true)} className="text-xs text-slate-500 hover:text-white transition-colors">← MENU</button>
-           <div>
+           <button 
+                onClick={() => setIsInMenu(true)} 
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded text-xs font-bold transition-colors border border-slate-700"
+            >
+                ← SAVE & EXIT
+           </button>
+           <div className="hidden md:block">
               <h1 className="text-xl md:text-2xl font-serif font-bold text-mythic-gold tracking-wider uppercase">{state.player.name}</h1>
-              <p className="text-xs text-slate-500 hidden md:block">{state.world.locationName}</p>
+              <p className="text-xs text-slate-500">{state.world.locationName}</p>
            </div>
            <AmbientSound terrain={currentTerrain} />
         </div>
         <div className="flex items-center gap-4 text-right">
+            {/* Autosave Indicators */}
+            {localSaveIndicator && (
+                <span className="text-[10px] text-emerald-500 uppercase tracking-widest flex items-center gap-1 animate-pulse">
+                    <CheckCircle size={10} /> Saved
+                </span>
+            )}
+            
+            {/* Cloud Save Button */}
             {isSupabaseConfigured() && !state.isGameOver && (
                 <button 
-                    onClick={handleCloudSave} 
+                    onClick={() => handleCloudSave(false)} 
                     disabled={saveStatus !== 'IDLE'}
                     className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold transition-all ${
                         saveStatus === 'SAVED' ? 'bg-emerald-600 text-white' : 
                         saveStatus === 'ERROR' ? 'bg-red-600 text-white' : 
                         'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                     }`}
+                    title="Save to Cloud"
                 >
                     <Save size={14} />
-                    {saveStatus === 'SAVING' ? 'Syncing...' : saveStatus === 'SAVED' ? 'Saved' : saveStatus === 'ERROR' ? 'Error' : 'Cloud Save'}
+                    <span className="hidden sm:inline">
+                        {saveStatus === 'SAVING' ? 'Syncing...' : saveStatus === 'SAVED' ? 'Saved' : saveStatus === 'ERROR' ? 'Error' : 'Cloud Save'}
+                    </span>
                 </button>
             )}
 
