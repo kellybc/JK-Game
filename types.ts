@@ -10,7 +10,7 @@ export enum ItemType {
 export type EquipmentSlot = 'hand' | 'body' | 'head' | 'accessory' | 'none';
 
 export interface ItemEffect {
-  stat: 'strength' | 'defense' | 'hp' | 'maxHp';
+  stat: 'strength' | 'dexterity' | 'constitution' | 'intelligence' | 'wisdom' | 'charisma' | 'hp' | 'maxHp' | 'ac';
   value: number;
 }
 
@@ -31,8 +31,15 @@ export interface CharacterStats {
   maxHp: number;
   xp: number;
   level: number;
+  // Core Attributes
   strength: number;
-  defense: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+  // Derived/Resource
+  ac: number; // Armor Class
   supplies: number; // Food/Water
 }
 
@@ -46,6 +53,7 @@ export interface Quest {
   id: string;
   title: string;
   description: string;
+  type: 'MINI' | 'MAIN' | 'WORLD'; // For pacing
   completed: boolean;
 }
 
@@ -57,6 +65,7 @@ export enum TileType {
   DUNGEON = 'DUNGEON',
   PLAINS = 'PLAINS',
   WATER = 'WATER',
+  INN = 'INN', // New type for starting location
   UNKNOWN = 'UNKNOWN'
 }
 
@@ -77,6 +86,7 @@ export interface CombatState {
   enemyHp?: number;
   enemyMaxHp?: number;
   enemyDescription?: string;
+  enemyType?: string; // For visual matching (e.g. "orc", "dragon")
   roundLog?: string[];
 }
 
@@ -85,7 +95,9 @@ export interface GameState {
   id: string; // Unique Save ID
   player: {
     name: string;
+    class: string;
     stats: CharacterStats;
+    reputation: number; // New: Affects NPC interactions
     inventory: Item[];
     companions: Companion[];
     activeQuests: Quest[];
@@ -123,6 +135,7 @@ export interface AIResponse {
   new_location_name?: string;
   new_location_description?: string;
   updated_npc_memories?: Record<string, string>;
+  reputation_change?: number;
   new_quest?: Quest;
   quest_completed_id?: string;
   suggested_actions: string[];
@@ -134,6 +147,7 @@ export interface AIResponse {
   combat_start?: boolean;
   enemy_name?: string;
   enemy_desc?: string;
+  enemy_type?: string; // e.g. "goblin", "beast"
   enemy_hp?: number; // Starting HP
   enemy_damage_taken?: number; // Damage enemy took this turn
   combat_ended?: boolean;

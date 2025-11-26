@@ -32,7 +32,7 @@ const aiResponseSchema: Schema = {
           effect: { 
               type: Type.OBJECT,
               properties: {
-                  stat: { type: Type.STRING, enum: ['strength', 'defense', 'hp', 'maxHp'] },
+                  stat: { type: Type.STRING, enum: ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma', 'hp', 'maxHp', 'ac'] },
                   value: { type: Type.INTEGER }
               }
           }
@@ -57,12 +57,14 @@ const aiResponseSchema: Schema = {
         required: ["npcName", "memory"]
       }
     },
+    reputation_change: { type: Type.INTEGER },
     new_quest: {
       type: Type.OBJECT,
       properties: {
         id: { type: Type.STRING },
         title: { type: Type.STRING },
         description: { type: Type.STRING },
+        type: { type: Type.STRING, enum: ['MINI', 'MAIN', 'WORLD'] },
         completed: { type: Type.BOOLEAN },
       },
     },
@@ -87,6 +89,7 @@ const aiResponseSchema: Schema = {
     combat_start: { type: Type.BOOLEAN, description: "True if a new fight begins this turn." },
     enemy_name: { type: Type.STRING },
     enemy_desc: { type: Type.STRING },
+    enemy_type: { type: Type.STRING, description: "Visual keyword for enemy (e.g. 'orc', 'dragon', 'bandit')" },
     enemy_hp: { type: Type.INTEGER, description: "Starting HP of new enemy." },
     enemy_damage_taken: { type: Type.INTEGER, description: "Damage dealt to enemy this turn." },
     combat_ended: { type: Type.BOOLEAN, description: "True if the enemy is defeated or player fled." }
@@ -112,48 +115,49 @@ export const generateGameTurn = async (
   if (!apiKey) {
     return {
       narrative: "Configuration Error: API_KEY is missing.",
-      hp_change: 0,
-      xp_gained: 0,
-      supplies_consumed: 0,
-      items_added: [],
-      items_removed_names: [],
-      suggested_actions: [],
-      is_game_over: false,
-      movement_direction: 'NONE',
-      current_terrain_type: TileType.UNKNOWN
+      hp_change: 0, xp_gained: 0, supplies_consumed: 0, items_added: [], items_removed_names: [], suggested_actions: [], is_game_over: false, movement_direction: 'NONE', current_terrain_type: TileType.UNKNOWN
     };
   }
 
   const ai = new GoogleGenAI({ apiKey });
 
-  // Calculate equipped stats for context
-  const equippedItems = currentState.player.inventory.filter(i => i.equipped);
-  const totalStr = currentState.player.stats.strength + equippedItems.reduce((acc, i) => acc + (i.effect?.stat === 'strength' ? i.effect.value : 0), 0);
-  const totalDef = currentState.player.stats.defense + equippedItems.reduce((acc, i) => acc + (i.effect?.stat === 'defense' ? i.effect.value : 0), 0);
-  
-  // Calculate weight
+  // Calculate Stat Modifiers for Context
+  const getMod = (score: number) => Math.floor((score - 10) / 2);
+  const stats = currentState.player.stats;
+  const modifiers = {
+      STR: getMod(stats.strength),
+      DEX: getMod(stats.dexterity),
+      CON: getMod(stats.constitution),
+      INT: getMod(stats.intelligence),
+      WIS: getMod(stats.wisdom),
+      CHA: getMod(stats.charisma),
+  };
+
   const totalWeight = currentState.player.inventory.reduce((acc, i) => acc + (i.weight * i.quantity), 0);
-  const maxWeight = totalStr * 2;
-  const isOverencumbered = totalWeight > maxWeight;
+  const maxWeight = stats.strength * 5; 
 
   const contextSummary = {
     player: {
-      base_stats: currentState.player.stats,
-      effective_combat_stats: { strength: totalStr, defense: totalDef },
-      encumbrance: { current: totalWeight, max: maxWeight, is_overencumbered: isOverencumbered },
+      name: currentState.player.name,
+      reputation: currentState.player.reputation,
+      stats: currentState.player.stats,
+      modifiers: modifiers,
+      encumbrance: { current: totalWeight, max: maxWeight, is_overencumbered: totalWeight > maxWeight },
       inventory: currentState.player.inventory.map(i => `${i.name} ${i.equipped ? '(Equipped)' : ''} (x${i.quantity})`),
-      position: currentState.player.position, 
+      active_quests: currentState.player.activeQuests.map(q => `${q.title} (${q.type})`),
     },
     world: {
       location: currentState.world.locationName,
       desc: currentState.world.locationDescription,
       time: currentState.world.timeOfDay,
+      npcs_nearby: Object.keys(currentState.world.npcMemory),
       map_tile_type: currentState.world.mapData.tiles[`${currentState.player.position.x},${currentState.player.position.y}`]?.type
     },
     combat_active: currentState.combat.isActive,
     enemy_status: currentState.combat.isActive ? {
         name: currentState.combat.enemyName,
-        current_hp: currentState.combat.enemyHp
+        current_hp: currentState.combat.enemyHp,
+        type: currentState.combat.enemyType
     } : null,
     recent_history: currentState.gameLog.slice(-5).map(log => `${log.sender}: ${log.content}`).join("\n"),
   };
@@ -161,20 +165,27 @@ export const generateGameTurn = async (
   const systemPrompt = `
     You are the Dungeon Master for 'Aetheria Chronicles'. 
     
-    CAMPAIGN GOAL: Find the "Aether Core" deep in a Dungeon. Start in Plains/Forest.
+    PACING & QUESTS:
+    1. Start the game at an Inn/Tavern with NPCs.
+    2. Offer 'MINI' quests (quick jobs, 15m), 'MAIN' quests (chapter goals, 1h), and 'WORLD' events.
+    3. REPUTATION: Actions affect reputation. High rep = better prices/info. Low rep = hostility.
     
-    COMBAT RULES:
-    1. If the player attacks an enemy, resolve the round. The player will provide a DICE ROLL (d20). Use it + their Strength to determine hit/damage.
-    2. If an enemy appears, set 'combat_start': true, and provide 'enemy_name', 'enemy_hp', 'enemy_desc'.
-    3. If the enemy dies, set 'combat_ended': true.
+    COMBAT RULES (D20 System):
+    1. Context will provide a ROLL. 
+    2. NATURAL 20: Critical Hit (Double Damage) or guaranteed success. Narrate heroically!
+    3. NATURAL 1: Critical Miss/Fumble. Narrate a comedic or painful failure.
+    4. HIT LOGIC: If (Roll + Modifier) >= Enemy AC (assume 10-15 for mobs), it hits.
     
-    INVENTORY RULES:
-    1. If 'is_overencumbered' is true, the player moves slower and has disadvantage in combat (narrate this).
-    2. Items should have realistic weights (e.g., Dagger 1.0, Armor 10.0, Potion 0.1).
-    
-    MAP RULES:
-    1. 'movement_direction': If player walks/moves, infer NORTH/SOUTH/EAST/WEST.
-    2. 'current_terrain_type': Must match the environment (TOWN, FOREST, DUNGEON, etc.).
+    STATS:
+    Use D&D 5e style stats (STR, DEX, etc.). 
+    - Strength: Melee damage/carry.
+    - Dexterity: Ranged/Initiative/AC.
+    - Constitution: HP.
+    - Intelligence/Wisdom: Clues/Magic.
+    - Charisma: Persuasion/Prices.
+
+    INVENTORY:
+    - Overencumbered = Disadvantage on rolls (narrate this).
     
     CONTEXT:
     ${JSON.stringify(contextSummary, null, 2)}
@@ -207,21 +218,18 @@ export const generateGameTurn = async (
 
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    
-    // Improved Error Handling for UI
     const errorMessage = error instanceof Error ? error.message : String(error);
     
-    // Check for Rate Limits (429)
     if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
         return {
-            narrative: "A sudden wave of exhaustion washes over you. The magical energies of the world are too dense right now. You must catch your breath for a moment. (Rate Limit Reached - Please wait 5 seconds before acting)",
+            narrative: "You are breathless. The world spins. You must rest. (Rate Limit - Wait 6s)",
             hp_change: 0, xp_gained: 0, supplies_consumed: 0, items_added: [], items_removed_names: [],
             suggested_actions: ["Wait"], is_game_over: false, movement_direction: 'NONE', current_terrain_type: TileType.UNKNOWN
         };
     }
 
     return {
-      narrative: "The mists of reality swirl chaotically, preventing your action. (The Dungeon Master is confused. Please try again.)",
+      narrative: `The Weave is tangled. (Error: ${errorMessage})`,
       hp_change: 0, xp_gained: 0, supplies_consumed: 0, items_added: [], items_removed_names: [],
       suggested_actions: ["Wait"], is_game_over: false, movement_direction: 'NONE', current_terrain_type: TileType.UNKNOWN
     };
