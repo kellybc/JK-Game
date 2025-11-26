@@ -17,6 +17,7 @@ const aiResponseSchema: Schema = {
     hp_change: { type: Type.INTEGER },
     xp_gained: { type: Type.INTEGER },
     supplies_consumed: { type: Type.INTEGER },
+    gold_change: { type: Type.INTEGER, description: "Gold earned or spent." },
     items_added: {
       type: Type.ARRAY,
       items: {
@@ -69,6 +70,7 @@ const aiResponseSchema: Schema = {
       },
     },
     quest_completed_id: { type: Type.STRING },
+    new_journal_entry: { type: Type.STRING, description: "Important clue, note, or summary to add to player journal." },
     suggested_actions: {
       type: Type.ARRAY,
       items: { type: Type.STRING }
@@ -139,6 +141,7 @@ export const generateGameTurn = async (
   const contextSummary = {
     player: {
       name: currentState.player.name,
+      gold: currentState.player.gold,
       reputation: currentState.player.reputation,
       stats: currentState.player.stats,
       modifiers: modifiers,
@@ -169,6 +172,8 @@ export const generateGameTurn = async (
     1. Start the game at an Inn/Tavern with NPCs.
     2. Offer 'MINI' quests (quick jobs, 15m), 'MAIN' quests (chapter goals, 1h), and 'WORLD' events.
     3. REPUTATION: Actions affect reputation. High rep = better prices/info. Low rep = hostility.
+    4. MONEY: Award GOLD for quests/loot. Charge GOLD for services/items.
+    5. JOURNAL: If the player learns a key clue or accepts a quest, add a 'new_journal_entry'.
     
     COMBAT RULES (D20 System):
     1. Context will provide a ROLL. 
@@ -183,9 +188,6 @@ export const generateGameTurn = async (
     - Constitution: HP.
     - Intelligence/Wisdom: Clues/Magic.
     - Charisma: Persuasion/Prices.
-
-    INVENTORY:
-    - Overencumbered = Disadvantage on rolls (narrate this).
     
     CONTEXT:
     ${JSON.stringify(contextSummary, null, 2)}

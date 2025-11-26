@@ -1,10 +1,12 @@
 import React from 'react';
 import { CharacterStats, Item } from '../types';
+import { Coins } from 'lucide-react';
 
 interface StatusCardProps {
   stats: CharacterStats;
   inventory: Item[];
   reputation: number;
+  gold: number;
   className?: string;
 }
 
@@ -34,7 +36,7 @@ const StatBox = ({ label, value, bonus = 0 }: { label: string; value: number; bo
     );
 };
 
-export const StatusCard: React.FC<StatusCardProps> = ({ stats, inventory, reputation, className }) => {
+export const StatusCard: React.FC<StatusCardProps> = ({ stats, inventory, reputation, gold, className }) => {
     // Calculate equipped bonuses
     const equippedItems = inventory.filter(i => i.equipped);
     const getBonus = (statName: string) => equippedItems.reduce((acc, i) => acc + (i.effect?.stat === statName ? i.effect.value : 0), 0);
@@ -43,7 +45,10 @@ export const StatusCard: React.FC<StatusCardProps> = ({ stats, inventory, reputa
     <div className={`bg-mythic-800 border border-slate-600 rounded-lg p-4 shadow-lg ${className}`}>
       <div className="flex justify-between items-center border-b border-slate-600 pb-2 mb-3">
         <h3 className="text-mythic-gold font-serif text-lg font-bold">Character Sheet</h3>
-        <div className="text-xs text-amber-500 font-mono">Rep: {reputation}</div>
+        <div className="text-xs flex gap-3">
+            <span className="text-amber-500 font-mono">Rep: {reputation}</span>
+            <span className="text-yellow-400 font-mono flex items-center gap-1"><Coins size={12}/> {gold}</span>
+        </div>
       </div>
       
       <div className="space-y-4">

@@ -53,7 +53,7 @@ export interface Quest {
   id: string;
   title: string;
   description: string;
-  type: 'MINI' | 'MAIN' | 'WORLD'; // For pacing
+  type: 'MINI' | 'MAIN' | 'WORLD';
   completed: boolean;
 }
 
@@ -65,12 +65,11 @@ export enum TileType {
   DUNGEON = 'DUNGEON',
   PLAINS = 'PLAINS',
   WATER = 'WATER',
-  INN = 'INN', // New type for starting location
+  INN = 'INN', 
   UNKNOWN = 'UNKNOWN'
 }
 
 export interface WorldMap {
-  // Key is "x,y" string (e.g. "0,0"), Value is the tile data
   tiles: Record<string, { type: TileType; visited: boolean }>;
 }
 
@@ -86,21 +85,23 @@ export interface CombatState {
   enemyHp?: number;
   enemyMaxHp?: number;
   enemyDescription?: string;
-  enemyType?: string; // For visual matching (e.g. "orc", "dragon")
+  enemyType?: string; 
   roundLog?: string[];
 }
 
 // --- STATE ---
 export interface GameState {
-  id: string; // Unique Save ID
+  id: string; 
   player: {
     name: string;
     class: string;
     stats: CharacterStats;
-    reputation: number; // New: Affects NPC interactions
+    reputation: number;
+    gold: number; // NEW: Money
     inventory: Item[];
     companions: Companion[];
     activeQuests: Quest[];
+    journal: string[]; // NEW: Notes/Clues
     position: Coordinates;
   };
   world: {
@@ -130,6 +131,7 @@ export interface AIResponse {
   hp_change: number; 
   xp_gained: number;
   supplies_consumed: number;
+  gold_change?: number; // NEW
   items_added: Item[];
   items_removed_names: string[];
   new_location_name?: string;
@@ -138,6 +140,7 @@ export interface AIResponse {
   reputation_change?: number;
   new_quest?: Quest;
   quest_completed_id?: string;
+  new_journal_entry?: string; // NEW
   suggested_actions: string[];
   is_game_over?: boolean;
   // Map Fields
@@ -147,8 +150,8 @@ export interface AIResponse {
   combat_start?: boolean;
   enemy_name?: string;
   enemy_desc?: string;
-  enemy_type?: string; // e.g. "goblin", "beast"
-  enemy_hp?: number; // Starting HP
-  enemy_damage_taken?: number; // Damage enemy took this turn
+  enemy_type?: string; 
+  enemy_hp?: number; 
+  enemy_damage_taken?: number; 
   combat_ended?: boolean;
 }
